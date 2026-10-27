@@ -414,9 +414,9 @@ PROP_WORDS = {
     "rebounds": "player_rebounds", "reb": "player_rebounds",
     "assists": "player_assists", "ast": "player_assists",
     "threes": "player_threes", "3s": "player_threes",
-    "goals": "player_goals", "shots": "player_shots_on_goal", "sog": "player_shots_on_goal",
+    "shots": "player_shots_on_goal", "sog": "player_shots_on_goal",
 }
-FILLER = {"yds", "yards", "yd", "ml", "moneyline", "to", "win", "@", "on", "at", "for", "bet"}
+FILLER = {"goals", "goal", "pts", "yds", "yards", "yd", "ml", "moneyline", "to", "win", "@", "on", "at", "for", "bet"}
 HELP = """🤖 Commands:
 /bet Texas -115 100 — moneyline (team, odds, $ stake)
 /bet Texas over 47.5 -110 50 — game total (use under for unders)
@@ -490,6 +490,8 @@ def parse_bet(text, need_stake=True):
         i += 1
     if b["side"] and b["market"] == "h2h":
         b["market"] = "totals"
+    if b["market"] != "h2h" and (not b["side"] or b["line"] is None):
+        return None  # totals/props need over/under + a number
     if b["odds"] is None or (need_stake and not b["stake"]) or not words:
         return None
     b["words"] = words
@@ -589,8 +591,22 @@ def check_price(text):
                    "❌ BAD price — you're overpaying")
         out.append(f"True odds (exchanges): {dec_to_am(1 / p)} · {p * 100:.0f}% to win")
         out.append(f"Your price is {edge:+.1f}% vs true → {verdict}")
+    elif g:
+        nv = []
+        for bk in data.get("bookmakers", []):
+            one = collect_prices({"bookmakers": [bk], "home_team": data.get("home_team")})[0].get(g, {})
+            if r["side"] in one and len(one) >= 2:
+                tot = sum(1 / v[0] for v in one.values())
+                nv.append((1 / one[r["side"]][0]) / tot)
+        if nv:
+            p2 = sum(nv) / len(nv)
+            edge = (p2 * my_d - 1) * 100
+            out.append(f"Exchanges don't post this line. Sportsbook-only estimate (less reliable): "
+                       f"{dec_to_am(1 / p2)} · {p2 * 100:.0f}% · your price {edge:+.1f}%")
+        else:
+            out.append("No price on this exact line at your books, so I can't judge it.")
     else:
-        out.append("No exchange price on this exact line, so I can't judge true odds.")
+        out.append("This exact line isn't posted at your books, so I can't judge it.")
     if g and r["side"] in best.get(g, {}):
         d, book, _ = best[g][r["side"]]
         tag = "  ← better than yours!" if d > my_d + 1e-9 else ""
