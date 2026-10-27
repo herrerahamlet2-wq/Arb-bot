@@ -1,7 +1,31 @@
 {
-  "offset": 253845577,
+  "offset": 253845578,
   "chat_id": "6914846421",
-  "bets": [],
-  "next_id": 1,
+  "bets": [
+    {
+      "id": 1,
+      "sport": "soccer_germany_dfb_pokal",
+      "event_id": "8fbf46f1db5270fe3cfa7c639906565c",
+      "event": "FSV Mainz 05 @ VfL Bochum",
+      "commence": "2026-10-27T17:00:01Z",
+      "market": "totals",
+      "side": "Over",
+      "player": null,
+      "line": 3.0,
+      "home": "VfL Bochum",
+      "odds": -118,
+      "stake": 122.0,
+      "payout": 225.39,
+      "label": "Over 3 (game total)",
+      "last_lock": null,
+      "status": "",
+      "placed": "2026-10-27T17:06:10+00:00",
+      "placed_live": true,
+      "close_p": null,
+      "result": null,
+      "profit": null
+    }
+  ],
+  "next_id": 2,
   "history": []
 }
