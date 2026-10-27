@@ -419,6 +419,7 @@ PROP_WORDS = {
 FILLER = {"goals", "goal", "pts", "yds", "yards", "yd", "ml", "moneyline", "to", "win", "@", "on", "at", "for", "bet"}
 HELP = """🤖 Commands:
 /bet Texas -115 100 — moneyline (team, odds, $ stake)
+/bet Texas -3.5 -110 100 — spread (team, spread, odds, $ stake)
 /bet Texas over 47.5 -110 50 — game total (use under for unders)
 /bet Lazio over 2.5 -120 50 — soccer goals total
 /bet Dak Prescott over 219.5 pass Cowboys -110 50 — player prop (add the team)
@@ -476,6 +477,8 @@ def parse_bet(text, need_stake=True):
         t, tl = toks[i], toks[i].lower()
         if re.fullmatch(r"[+-]\d{3,5}", t) and b["odds"] is None:
             b["odds"] = int(t)
+        elif re.fullmatch(r"[+-]\d{1,2}(\.5)?", t) or tl in ("pk", "pick"):
+            b["market"], b["line"] = "spreads", (0.0 if tl in ("pk", "pick") else float(t))
         elif tl in ("over", "under", "o", "u") and i + 1 < len(toks) and re.fullmatch(r"\d+(\.\d+)?", toks[i + 1]):
             b["side"], b["line"] = ("Over" if tl in ("over", "o") else "Under"), float(toks[i + 1])
             i += 1
@@ -488,9 +491,9 @@ def parse_bet(text, need_stake=True):
         elif tl not in FILLER:
             words.append(t)
         i += 1
-    if b["side"] and b["market"] == "h2h":
+    if b["side"] and b["market"] in ("h2h", "spreads"):
         b["market"] = "totals"
-    if b["market"] != "h2h" and (not b["side"] or b["line"] is None):
+    if b["market"] not in ("h2h", "spreads") and (not b["side"] or b["line"] is None):
         return None  # totals/props need over/under + a number
     if b["odds"] is None or (need_stake and not b["stake"]) or not words:
         return None
@@ -530,6 +533,10 @@ def resolve(b):
             side = max([ev["home_team"], ev["away_team"]],
                        key=lambda t: sum(w in t.lower() for w in hits))
         player, label = None, f"{side} ML" if side != "Draw" else "Draw"
+    elif b["market"] == "spreads":
+        side = max([ev["home_team"], ev["away_team"]],
+                   key=lambda t: sum(w in t.lower() for w in hits))
+        player, label = None, f"{side} {b['line']:+g}"
     elif b["market"] == "totals":
         if not b["side"]:
             return "Totals need over/under and a number, e.g. /bet Texas over 47.5 -110 50"
@@ -539,7 +546,7 @@ def resolve(b):
             return "Props need the player's name and team, e.g. /bet Dak Prescott over 219.5 pass Cowboys -110 50"
         side, player = b["side"], " ".join(rest)
         label = f"{player} {b['side']} {b['line']:g} {b['market'].replace('player_', '').replace('_', ' ')}"
-    return {"sport": sk, "ev": ev, "side": side, "player": player, "label": label}
+    return {"sport": sk, "ev": ev, "side": side, "player": player, "label": label, "home": ev["home_team"]}
 
 
 def add_bet(st, text):
@@ -554,7 +561,7 @@ def add_bet(st, text):
     start = datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00"))
     bet = {"id": st["next_id"], "sport": sk, "event_id": ev["id"],
            "event": f"{ev['away_team']} @ {ev['home_team']}", "commence": ev["commence_time"],
-           "market": b["market"], "side": side, "player": player, "line": b["line"],
+           "market": b["market"], "side": side, "player": player, "line": b["line"], "home": r["home"],
            "odds": b["odds"], "stake": b["stake"], "payout": round(payout, 2),
            "label": label, "last_lock": None, "status": "",
            "placed": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -576,7 +583,7 @@ def check_price(text):
     ev = r["ev"]
     data = api_get(f"/sports/{r['sport']}/events/{ev['id']}/odds", markets=b["market"],
                    oddsFormat="american", **book_params())
-    probe = {"market": b["market"], "line": b["line"], "player": r["player"]}
+    probe = {"market": b["market"], "line": b["line"], "player": r["player"], "side": r["side"], "home": r["home"]}
     best, all_sides = collect_prices(data, MY_BOOKS) if data else ({}, {})
     g = bet_group(probe, best) if best else None
     my_d = am_to_dec(b["odds"])
@@ -630,6 +637,13 @@ def grade_from_scores(bet, ev):
         if winner == "Draw" and bet["side"] != "Draw" and not bet["sport"].startswith("soccer"):
             return "push"
         return "won" if bet["side"] == winner else "lost"
+    if bet["market"] == "spreads":
+        mine = sc.get(bet["side"])
+        opp = [v for k, v in sc.items() if k != bet["side"]]
+        if mine is None or not opp:
+            return None
+        diff = mine + bet["line"] - opp[0]
+        return "push" if abs(diff) < 1e-9 else ("won" if diff > 0 else "lost")
     if bet["market"] == "totals":
         tot = sum(sc.values())
         if abs(tot - bet["line"]) < 1e-9:
@@ -693,6 +707,10 @@ def bet_group(bet, best):
             return g
         if bet["market"] == "totals" and g[1] == bet["line"]:
             return g
+        if bet["market"] == "spreads" and bet.get("home"):
+            rel = bet["line"] if bet["side"] == bet["home"] else -bet["line"]
+            if abs(g[1] - rel) < 1e-9:
+                return g
         if bet["player"] and len(g) == 3 and g[2] == bet["line"] and \
                 all(w.lower() in str(g[1]).lower() for w in bet["player"].split()):
             return g
@@ -707,7 +725,7 @@ def check_bets(st, odds_cache):
         start = datetime.fromisoformat(bet["commence"].replace("Z", "+00:00"))
         since = (now - start).total_seconds()
         # auto-grade moneylines & totals once the game is likely over (checks at most every 30 min)
-        if since > 2 * 3600 and bet["market"] in ("h2h", "totals") and \
+        if since > 2 * 3600 and bet["market"] in ("h2h", "totals", "spreads") and \
                 time.time() - bet.get("grade_try", 0) > 1800:
             bet["grade_try"] = time.time()
             changed = True
@@ -736,7 +754,7 @@ def check_bets(st, odds_cache):
         if start > now + timedelta(hours=12):
             bet["status"] = "game hasn't started yet — I'll watch it when it gets close"
             continue
-        data = odds_cache.get(bet["event_id"]) if bet["market"] in ("h2h", "totals") else None
+        data = odds_cache.get(bet["event_id"]) if bet["market"] in ("h2h", "totals", "spreads") else None
         if data is None:
             try:
                 data = api_get(f"/sports/{bet['sport']}/events/{bet['event_id']}/odds",
@@ -795,10 +813,17 @@ def active_sports(window_back_h=6, window_ahead_h=6):
     return out
 
 
+def markets_for(sk):
+    m = [x for x in MARKETS.split(",") if x]
+    if sk.startswith("americanfootball") and "spreads" not in m:
+        m.append("spreads")  # NFL + college football: spreads too
+    return ",".join(m)
+
+
 def run_cycle(st, seen):
     odds_cache = {}
     for sk in active_sports():
-        events = api_get(f"/sports/{sk}/odds", markets=MARKETS, oddsFormat="american", **book_params())
+        events = api_get(f"/sports/{sk}/odds", markets=markets_for(sk), oddsFormat="american", **book_params())
         for ev in events:
             odds_cache[ev["id"]] = ev
         for a in find_arbs(events):
