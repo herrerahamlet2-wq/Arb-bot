@@ -52,6 +52,8 @@ BETTING_BANKROLL = float(os.getenv("BETTING_BANKROLL", "500"))  # your total bet
 KELLY_FRACTION = 0.25     # bet a quarter of the "math-perfect" size (safer)
 MAX_BET_PCT = 2.0         # never suggest more than this % of your bankroll on one value bet
 EV_INCLUDE_LIVE = False   # live exchange prices are often stale — skip by default
+MAX_FAVORITE = float(os.getenv("MAX_FAVORITE", "-175"))   # never suggest bets shorter than this
+UNIT_TO_WIN = float(os.getenv("UNIT_TO_WIN", "100"))       # you bet to win this much
 
 # Exchanges take a cut of winnings. Set these to what your apps actually charge
 # (fraction of profit). Prices are adjusted before checking for arbs.
@@ -268,6 +270,8 @@ def find_ev(events):
                     if not p or p < 0.05:
                         continue
                     d = raw_dec(o["price"])
+                    if d < am_to_dec(MAX_FAVORITE):
+                        continue  # shorter than your max favorite (e.g. -175)
                     ev_pct = (p * d - 1) * 100
                     key = (ev["id"] if "id" in ev else ev["home_team"], g, side)
                     if ev_pct >= MIN_EV_PCT and (key not in picks or ev_pct > picks[key]["ev"]):
@@ -288,7 +292,8 @@ def fmt_ev(x):
         f"📈 VALUE BET +{x['ev']:.1f}% — {x['sport']}: {x['event']}{flag}",
         f"   Bet: {line} {dec_to_am(x['dec'])} @ {x['book']}   (fair price {dec_to_am(1 / x['p'])})",
         f"   Win chance (exchanges): {x['p'] * 100:.0f}%",
-        f"   Suggested bet: ${x['stake']} of your ${BETTING_BANKROLL:.0f}",
+        f"   Your unit: risk ${UNIT_TO_WIN / (x['dec'] - 1):.2f} to win ${UNIT_TO_WIN:.0f}"
+        f"  (math-optimal size: ${x['stake']})",
         "   Not guaranteed — profitable long-run, can lose any single bet.",
     ])
 
