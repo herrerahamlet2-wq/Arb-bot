@@ -462,6 +462,7 @@ HELP = """🤖 Commands:
 /bets — your open bets + live hedge numbers
 /won 2 · /lost 2 · /push 2 — grade bet #2 (I grade moneylines & totals myself)
 /result 2 +45.50 — record what you actually made (e.g. after a hedge)
+/pick — best value bet of the day across all sports (also sent automatically at noon)
 /stats — record, profit, ROI, and whether you're beating the closing line
 /del 2 — delete bet #2 (mistakes only — it won't count in stats)
 /scan — scan right now
@@ -899,6 +900,42 @@ def run_cycle(st, seen):
     return changed
 
 
+def best_picks(n=3):
+    """Best value bets starting in the next 24h across ALL sports (costs ~1-3 credits per active sport)."""
+    now = datetime.now(timezone.utc)
+    picks = []
+    for sk in resolve_sports():
+        evs = [e for e in api_get(f"/sports/{sk}/events")
+               if now < datetime.fromisoformat(e["commence_time"].replace("Z", "+00:00")) < now + timedelta(hours=24)]
+        if not evs:
+            continue  # nothing today = no credits spent
+        events = api_get(f"/sports/{sk}/odds", markets=markets_for(sk), oddsFormat="american", **book_params())
+        for x in find_ev(events):
+            if x["ev"] < 15:  # bigger "edges" are usually stale lines
+                am = float(dec_to_am(x["dec"]))
+                x["in_range"] = -140 <= am <= -110
+                x["score"] = x["ev"] + (3 if x.get("steam") else 0) + (1 if x["in_range"] else 0)
+                picks.append(x)
+    picks.sort(key=lambda x: -x["score"])
+    return picks[:n]
+
+
+def pick_text():
+    picks = best_picks()
+    if not picks:
+        return ("🎯 No pick today — nothing at your books beats the sharp price by "
+                f"{MIN_EV_PCT:g}%+. Passing IS a sharp move.")
+    out = ["🎯 PICK OF THE DAY", fmt_ev(picks[0])]
+    if picks[0].get("in_range"):
+        out.append("   ✅ In your -110 to -140 range.")
+    if len(picks) > 1:
+        out.append("\nRunners-up:")
+        for x in picks[1:]:
+            out.append(f"• {x['side']} {dec_to_am(x['dec'])} @ {x['book']} — {x['event']} (+{x['ev']:.1f}%)")
+    out.append("\nBest price ≠ sure winner. Add your own read, then /bet it if you play.")
+    return "\n".join(out)
+
+
 def handle_command(st, text, seen):
     cmd, _, rest = text.strip().partition(" ")
     cmd = cmd.lower().split("@")[0]
@@ -928,6 +965,8 @@ def handle_command(st, text, seen):
         return f"Got it — bet #{bet['id']} {bet['label']}: {'+' if bet['profit'] >= 0 else '-'}${abs(bet['profit']):.2f}\n\n" + stats_text(st)
     if cmd == "/stats":
         return stats_text(st)
+    if cmd == "/pick":
+        return pick_text()
     if cmd == "/bets":
         if not st["bets"]:
             return "No open bets. Add one: /bet Texas -115 100"
@@ -992,6 +1031,14 @@ def cmd_watch(args):
     TELEGRAM_CHAT_ID = st["chat_id"]
     seen, next_scan, low_warned = set(), 0.0, False
     print(f"Live mode: scanning every {every} min.")
+    today = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
+    if st.get("last_pick") != today and datetime.now(timezone.utc).hour < 20:  # noon-session run only (UTC)
+        try:
+            tg_send(st["chat_id"], pick_text())
+            st["last_pick"] = today
+            save_state(st, "Daily pick")
+        except Exception as e:
+            print(f"  ! daily pick failed: {e}")
     while time.time() < end:
         if time.time() >= next_scan:
             try:
