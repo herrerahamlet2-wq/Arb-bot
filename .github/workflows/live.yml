@@ -30,6 +30,6 @@ jobs:
       - run: python arb_bot.py watch --every 15 --hours 5.85
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN || secrets.TELGRAM_TOKEN }}
           BETTING_BANKROLL: "500"
           MARKETS: "h2h,totals"   # moneylines + overs/unders
