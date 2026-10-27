@@ -1,5 +1,5 @@
 {
-  "offset": 253845578,
+  "offset": 253845579,
   "chat_id": "6914846421",
   "bets": [
     {
@@ -18,7 +18,7 @@
       "payout": 225.39,
       "label": "Over 3 (game total)",
       "last_lock": null,
-      "status": "",
+      "status": "that line isn't posted at your books right now",
       "placed": "2026-10-27T17:06:10+00:00",
       "placed_live": true,
       "close_p": null,
