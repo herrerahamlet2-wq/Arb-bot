@@ -73,6 +73,10 @@ SPORTS = ["americanfootball_nfl", "americanfootball_ncaaf", "basketball_nba", "b
           "soccer_epl", "soccer_italy_serie_a", "soccer_spain_la_liga", "soccer_germany_bundesliga",
           "soccer_france_ligue_one", "soccer_uefa_champs_league", "soccer_usa_mls"]
 
+# Sports the automatic scan looks at for arbs/value/steam (the rest still work in
+# /check, /tennis, /bet and hedge alerts). Comma list; "" = everything in SPORTS.
+SCAN_SPORTS = [x for x in os.getenv("SCAN_SPORTS", "americanfootball_nfl").split(",") if x]
+
 MARKETS = os.getenv("MARKETS", "h2h,spreads,totals")
 BANKROLL = 100.0          # total $ to split across the sides of one arb
 MIN_PROFIT_PCT = 0.5      # only report arbs at or above this guaranteed return
@@ -855,7 +859,10 @@ def active_sports(window_back_h=6, window_ahead_h=6):
     """Only sports with a game live or starting soon (event lists are free)."""
     now = datetime.now(timezone.utc)
     out = []
-    for sk in resolve_sports():
+    keys = resolve_sports()
+    if SCAN_SPORTS:
+        keys = [k for k in keys if any(k.startswith(x.rstrip("*")) for x in SCAN_SPORTS)]
+    for sk in keys:
         for ev in api_get(f"/sports/{sk}/events"):
             t = datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00"))
             if now - timedelta(hours=window_back_h) <= t <= now + timedelta(hours=window_ahead_h):

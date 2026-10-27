@@ -33,3 +33,4 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN || secrets.TELGRAM_TOKEN }}
           BETTING_BANKROLL: "10000"
           MARKETS: "h2h,totals"   # moneylines + overs/unders
+          SCAN_SPORTS: "americanfootball_nfl"   # auto-scan only NFL; add more with commas
