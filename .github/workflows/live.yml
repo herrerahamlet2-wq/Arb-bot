@@ -31,5 +31,5 @@ jobs:
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN || secrets.TELGRAM_TOKEN }}
-          BETTING_BANKROLL: "500"
+          BETTING_BANKROLL: "10000"
           MARKETS: "h2h,totals"   # moneylines + overs/unders
