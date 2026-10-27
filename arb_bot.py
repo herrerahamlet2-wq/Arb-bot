@@ -69,7 +69,9 @@ FEES = {"kalshi": 0.035, "novig": 0.0, "prophetx": 0.0}
 # (tennis keys change per tournament, e.g. tennis_atp_paris_masters).
 SPORTS = ["americanfootball_nfl", "americanfootball_ncaaf", "basketball_nba", "basketball_ncaab",
           "icehockey_nhl", "tennis_atp*", "tennis_wta*",
-          "soccer_*"]  # every soccer league in the feed
+          # big soccer leagues (fits the $30 odds plan). For every league use "soccer_*".
+          "soccer_epl", "soccer_italy_serie_a", "soccer_spain_la_liga", "soccer_germany_bundesliga",
+          "soccer_france_ligue_one", "soccer_uefa_champs_league", "soccer_usa_mls"]
 
 MARKETS = os.getenv("MARKETS", "h2h,spreads,totals")
 BANKROLL = 100.0          # total $ to split across the sides of one arb

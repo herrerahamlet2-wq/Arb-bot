@@ -27,7 +27,7 @@ jobs:
       - run: |
           git config user.name "arb-bot"
           git config user.email "arb-bot@users.noreply.github.com"
-      - run: python arb_bot.py watch --every 15 --hours 5.85
+      - run: python arb_bot.py watch --every 20 --hours 5.85
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN || secrets.TELGRAM_TOKEN }}
