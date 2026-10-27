@@ -451,6 +451,7 @@ HELP = """🤖 Commands:
 /bet Texas over 47.5 -110 50 — game total (use under for unders)
 /bet Lazio over 2.5 -120 50 — soccer goals total
 /bet Dak Prescott over 219.5 pass Cowboys -110 50 — player prop (add the team)
+/tennis Sinner Alcaraz — match card: model vs market, H2H, surface form, hold/break, total games
 /check Lazio over 3 +112 — BEFORE you bet: true odds, your edge, GOOD/BAD price
 /bets — your open bets + live hedge numbers
 /won 2 · /lost 2 · /push 2 — grade bet #2 (I grade moneylines & totals myself)
@@ -595,6 +596,12 @@ def add_bet(st, text):
            "placed": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "placed_live": start <= datetime.now(timezone.utc),
            "close_p": None, "result": None, "profit": None}
+    if sk.startswith("tennis"):
+        try:
+            import tennis
+            bet["surface"] = tennis.surface_for_event(ev.get("sport_title") or sk)
+        except Exception:
+            pass
     st["next_id"] += 1
     st["bets"].append(bet)
     return (f"✅ Bet #{bet['id']} saved: {label} {b['odds']:+d} ${b['stake']:g} "
@@ -720,6 +727,20 @@ def stats_text(st):
         beat = sum(c > 0 for c in clv)
         out.append(f"Closing line: beat it on {beat} of {len(clv)} pre-game bets · avg {sum(clv) / len(clv) * 100:+.1f}%")
         out.append("(Beating the close over time = real edge, even through losing streaks.)")
+    tennis_done = [b for b in done if b.get("sport", "").startswith("tennis")]
+    if tennis_done:
+        out.append("🎾 Tennis breakdown:")
+        groups = {}
+        for b in tennis_done:
+            kind = "ML" if b["market"] == "h2h" else ("Overs" if b.get("side") == "Over" else
+                                                     "Unders" if b.get("side") == "Under" else b["market"])
+            for key in (f"{b.get('surface') or 'Unknown'} court", kind):
+                groups.setdefault(key, []).append(b)
+        for key, bs in sorted(groups.items()):
+            p_ = sum(x["profit"] for x in bs)
+            r_ = sum(x["stake"] for x in bs)
+            out.append(f"   {key}: {sum(x['result'] == 'won' for x in bs)}-{sum(x['result'] == 'lost' for x in bs)}"
+                       f" · {'+' if p_ >= 0 else '-'}${abs(p_):,.0f} · ROI {p_ / r_ * 100:+.0f}%" if r_ else "")
     if len(done) < 50:
         out.append(f"Only {len(done)} bets so far — need ~100+ before the record means much.")
     if waiting:
@@ -878,6 +899,9 @@ def handle_command(st, text, seen):
         return reply
     if cmd == "/check":
         return check_price(rest)
+    if cmd == "/tennis":
+        import tennis
+        return tennis.card(sys.modules[__name__], rest)
     if cmd in ("/won", "/lost", "/push", "/result"):
         nums = re.findall(r"[+-]?\d+(?:\.\d+)?", rest)
         if not nums:

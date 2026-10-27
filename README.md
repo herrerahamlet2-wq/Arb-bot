@@ -9,6 +9,7 @@ and sends Telegram alerts for:
 
 ## Telegram commands
 ```
+/tennis Sinner Alcaraz                                tennis match card (model vs market, H2H, surface, total games)
 /check Lazio over 3 +112                             before you bet: true odds, edge, GOOD/BAD
 /bet Texas -115 100                                  log a moneyline (team, odds, $ risked)
 /bet Texas over 47.5 -110 50                         game total
@@ -25,3 +26,6 @@ and sends Telegram alerts for:
 - Bankroll and markets: `.github/workflows/live.yml`
 - Books, sports, fees: top of `arb_bot.py`
 - Keys live in **Settings → Secrets and variables → Actions**: `ODDS_API_KEY`, `TELEGRAM_TOKEN`
+
+## Tennis data
+Player stats come from Jeff Sackmann's free ATP/WTA match data (github.com/JeffSackmann/tennis_atp, tennis_wta), licensed CC BY-NC-SA 4.0. Personal, non-commercial use only.
