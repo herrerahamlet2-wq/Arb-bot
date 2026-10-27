@@ -1,5 +1,5 @@
 {
-  "offset": 253845580,
+  "offset": 253845581,
   "chat_id": "6914846421",
   "bets": [
     {
@@ -24,8 +24,31 @@
       "close_p": null,
       "result": null,
       "profit": null
+    },
+    {
+      "id": 2,
+      "sport": "americanfootball_ncaaf",
+      "event_id": "eed30e1ba5aa37d77ee6401d67832446",
+      "event": "Sam Houston State Bearkats @ Missouri State Bears",
+      "commence": "2026-10-28T00:00:00Z",
+      "market": "h2h",
+      "side": "Sam Houston State Bearkats",
+      "player": null,
+      "line": null,
+      "home": "Missouri State Bears",
+      "odds": 165,
+      "stake": 100.0,
+      "payout": 265.0,
+      "label": "Sam Houston State Bearkats ML",
+      "last_lock": null,
+      "status": "",
+      "placed": "2026-10-27T18:40:09+00:00",
+      "placed_live": false,
+      "close_p": null,
+      "result": null,
+      "profit": null
     }
   ],
-  "next_id": 2,
+  "next_id": 3,
   "history": []
 }
