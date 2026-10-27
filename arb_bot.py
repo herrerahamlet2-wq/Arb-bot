@@ -61,7 +61,9 @@ FEES = {"kalshi": 0.035, "novig": 0.0, "prophetx": 0.0}
 # Sports to scan. Entries ending in * match every active key with that prefix
 # (tennis keys change per tournament, e.g. tennis_atp_paris_masters).
 SPORTS = ["americanfootball_nfl", "americanfootball_ncaaf", "basketball_nba", "basketball_ncaab",
-          "icehockey_nhl", "tennis_atp*", "tennis_wta*"]
+          "icehockey_nhl", "tennis_atp*", "tennis_wta*",
+          "soccer_italy_serie_a", "soccer_epl", "soccer_spain_la_liga", "soccer_germany_bundesliga",
+          "soccer_france_ligue_one", "soccer_uefa_champs_league", "soccer_uefa_europa_league", "soccer_usa_mls"]
 
 MARKETS = os.getenv("MARKETS", "h2h,spreads,totals")
 BANKROLL = 100.0          # total $ to split across the sides of one arb
@@ -414,6 +416,7 @@ FILLER = {"yds", "yards", "yd", "ml", "moneyline", "to", "win", "@", "on", "at",
 HELP = """🤖 Commands:
 /bet Texas -115 100 — moneyline (team, odds, $ stake)
 /bet Texas over 47.5 -110 50 — game total (use under for unders)
+/bet Lazio over 2.5 -120 50 — soccer goals total
 /bet Dak Prescott over 219.5 pass Cowboys -110 50 — player prop (add the team)
 /bets — your open bets + live hedge numbers
 /del 2 — remove bet #2 (after you hedge or it ends)
