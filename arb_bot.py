@@ -62,8 +62,7 @@ FEES = {"kalshi": 0.035, "novig": 0.0, "prophetx": 0.0}
 # (tennis keys change per tournament, e.g. tennis_atp_paris_masters).
 SPORTS = ["americanfootball_nfl", "americanfootball_ncaaf", "basketball_nba", "basketball_ncaab",
           "icehockey_nhl", "tennis_atp*", "tennis_wta*",
-          "soccer_italy_serie_a", "soccer_epl", "soccer_spain_la_liga", "soccer_germany_bundesliga",
-          "soccer_france_ligue_one", "soccer_uefa_champs_league", "soccer_uefa_europa_league", "soccer_usa_mls"]
+          "soccer_*"]  # every soccer league in the feed
 
 MARKETS = os.getenv("MARKETS", "h2h,spreads,totals")
 BANKROLL = 100.0          # total $ to split across the sides of one arb
@@ -127,7 +126,7 @@ def book_params():
 
 
 def resolve_sports():
-    active = [s["key"] for s in api_get("/sports")]  # free call
+    active = [s["key"] for s in api_get("/sports") if not s.get("has_outrights")]  # free call; skip futures
     keys = []
     for want in SPORTS:
         if want.endswith("*"):
