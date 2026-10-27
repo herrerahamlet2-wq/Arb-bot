@@ -46,7 +46,12 @@ if UP_NORTH:
     MY_BOOKS.append("fanduel")
 
 # ── Value (+EV) betting ── exchanges = "true" odds; flag soft-book prices that beat them.
-SHARP_BOOKS = ["novig", "prophetx", "kalshi"]
+# Sharp books = "true odds". Pinnacle is the pros' benchmark, so it counts double.
+# They're only used to judge prices — the bot never tells you to bet there.
+SHARP_WEIGHTS = {"pinnacle": 2.0, "novig": 1.0, "prophetx": 1.0, "kalshi": 1.0}
+SHARP_BOOKS = list(SHARP_WEIGHTS)
+REFERENCE_BOOKS = ["pinnacle"]   # fetched for pricing only (not bettable for you)
+STEAM_MOVE = 0.02                # sharp win-chance move (2 points) between scans that counts as "steam"
 MIN_EV_PCT = float(os.getenv("MIN_EV_PCT", "3"))          # only flag bets at least this % better than fair
 BETTING_BANKROLL = float(os.getenv("BETTING_BANKROLL", "500"))  # your total betting money
 KELLY_FRACTION = 0.25     # bet a quarter of the "math-perfect" size (safer)
@@ -123,7 +128,7 @@ def api_get(path, **params):
 
 def book_params():
     if MY_BOOKS:
-        return {"bookmakers": ",".join(MY_BOOKS)}
+        return {"bookmakers": ",".join(dict.fromkeys(MY_BOOKS + REFERENCE_BOOKS))}
     return {"regions": "us"}
 
 
@@ -219,7 +224,7 @@ def is_live(ev):
 
 
 def fair_probs(event):
-    """No-vig win chance for every side, averaged across the exchanges that post both sides."""
+    """No-vig win chance for every side: weighted average of sharp books (Pinnacle counts double)."""
     per = {}
     for bk in event.get("bookmakers", []):
         if bk["key"] not in SHARP_BOOKS:
@@ -233,15 +238,16 @@ def fair_probs(event):
     fair = {}
     for g, books in per.items():
         sets = []
-        for sides in books.values():
+        for bk_key, sides in books.items():
             if len(sides) < 2:
                 continue
             tot = sum(1 / d for d in sides.values())
-            sets.append({s_: (1 / d) / tot for s_, d in sides.items()})
+            sets.append((SHARP_WEIGHTS.get(bk_key, 1.0), {s_: (1 / d) / tot for s_, d in sides.items()}))
         if not sets:
             continue
-        common = set.intersection(*(set(x) for x in sets))
-        fair[g] = {s_: sum(x[s_] for x in sets) / len(sets) for s_ in common}
+        common = set.intersection(*(set(x) for _, x in sets))
+        wsum = sum(w for w, _ in sets)
+        fair[g] = {s_: sum(w * x[s_] for w, x in sets) / wsum for s_ in common}
     return fair
 
 
@@ -252,12 +258,22 @@ def suggest_stake(p, d):
     return round(BETTING_BANKROLL * pct)
 
 
+LAST_FAIR = {}   # (event id, market group, side) -> sharp win chance at previous scan
+
+
 def find_ev(events):
     picks = {}
     for ev in events:
         if is_live(ev) and not EV_INCLUDE_LIVE:
             continue
         fair = fair_probs(ev)
+        moves = {}
+        for g, sides in fair.items():
+            for side, p_now in sides.items():
+                k = (ev.get("id"), g, side)
+                if k in LAST_FAIR:
+                    moves[(g, side)] = (LAST_FAIR[k], p_now)
+                LAST_FAIR[k] = p_now
         for bk in ev.get("bookmakers", []):
             if bk["key"] in SHARP_BOOKS or (MY_BOOKS and bk["key"] not in MY_BOOKS):
                 continue
@@ -275,11 +291,17 @@ def find_ev(events):
                     ev_pct = (p * d - 1) * 100
                     key = (ev["id"] if "id" in ev else ev["home_team"], g, side)
                     if ev_pct >= MIN_EV_PCT and (key not in picks or ev_pct > picks[key]["ev"]):
+                        mv = moves.get((g, side))
+                        steam = mv if mv and mv[1] - mv[0] >= STEAM_MOVE else None
                         picks[key] = {"event": f"{ev['away_team']} @ {ev['home_team']}",
                                       "sport": ev.get("sport_title", ev.get("sport_key")),
                                       "group": g, "side": side, "dec": d, "book": bk["title"],
-                                      "p": p, "ev": ev_pct, "stake": suggest_stake(p, d)}
-    return sorted(picks.values(), key=lambda x: -x["ev"])
+                                      "p": p, "ev": ev_pct, "stake": suggest_stake(p, d),
+                                      "home": ev.get("home_team"), "steam": steam,
+                                      "sharp": "Pinnacle" if any(b["key"] == "pinnacle" for b in ev.get("bookmakers", []))
+                                      else "exchanges"}
+    # steam first, then biggest edge
+    return sorted(picks.values(), key=lambda x: (x["steam"] is None, -x["ev"]))
 
 
 def fmt_ev(x):
@@ -287,11 +309,17 @@ def fmt_ev(x):
     pt = x["group"][-1] if len(x["group"]) > 1 and x["group"][-1] is not None else None
     line = f"{x['side']}" + (f" {pt}" if pt is not None and not x["group"][0].startswith("spreads") else "")
     if x["group"][0].startswith("spreads"):
-        line = f"{x['side']} (spread {fmt_line(x['group']).split(' ', 1)[1]} from home side)"
-    return "\n".join([
-        f"📈 VALUE BET +{x['ev']:.1f}% — {x['sport']}: {x['event']}{flag}",
-        f"   Bet: {line} {dec_to_am(x['dec'])} @ {x['book']}   (fair price {dec_to_am(1 / x['p'])})",
-        f"   Win chance (exchanges): {x['p'] * 100:.0f}%",
+        rel = x["group"][1]
+        own = rel if x["side"] == x.get("home") else -rel
+        line = f"{x['side']} {own:+g}"
+    head = (f"⚡ STEAM — sharp money moved, {x['book']} hasn't caught up" if x.get("steam") else "📈 VALUE BET")
+    out = [f"{head} +{x['ev']:.1f}% — {x['sport']}: {x['event']}{flag}",
+           f"   Bet: {line} {dec_to_am(x['dec'])} @ {x['book']}   (fair price {dec_to_am(1 / x['p'])})"]
+    if x.get("steam"):
+        a, b = x["steam"]
+        out.append(f"   Sharp line moved: {dec_to_am(1 / a)} → {dec_to_am(1 / b)} since last scan. Move fast — books catch up quickly.")
+    return "\n".join(out + [
+        f"   Win chance ({x.get('sharp', 'exchanges')}): {x['p'] * 100:.0f}%",
         f"   Your unit: risk ${UNIT_TO_WIN / (x['dec'] - 1):.2f} to win ${UNIT_TO_WIN:.0f}"
         f"  (math-optimal size: ${x['stake']})",
         "   Not guaranteed — profitable long-run, can lose any single bet.",
@@ -369,7 +397,7 @@ def telegram(text):
 
 # ── commands ───────────────────────────────────────────────────────────────
 def cmd_books(_):
-    events = api_get("/sports/upcoming/odds", regions="us,us2,us_ex", markets="h2h", oddsFormat="american")
+    events = api_get("/sports/upcoming/odds", regions="us,us2,us_ex,eu", markets="h2h", oddsFormat="american")
     seen = {}
     for ev in events:
         for bk in ev.get("bookmakers", []):
