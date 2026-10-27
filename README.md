@@ -9,12 +9,16 @@ and sends Telegram alerts for:
 
 ## Telegram commands
 ```
-/bet Texas -115 100                                  moneyline
+/check Lazio over 3 +112                             before you bet: true odds, edge, GOOD/BAD
+/bet Texas -115 100                                  log a moneyline (team, odds, $ risked)
 /bet Texas over 47.5 -110 50                         game total
 /bet Dak Prescott over 219.5 pass Cowboys -110 50    player prop
-/bets      open bets + live hedge numbers
-/del 2     remove bet #2
-/scan      scan now
+/bets                                                open bets + live hedge numbers
+/won 2 · /lost 2 · /push 2                           grade a bet (moneylines/totals auto-grade)
+/result 2 +45.50                                     what you actually made after a hedge
+/stats                                               record, profit, ROI, closing-line value
+/del 2                                               delete a mistaken bet
+/scan                                                scan now
 ```
 
 ## Settings

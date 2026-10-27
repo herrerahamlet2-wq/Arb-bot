@@ -422,11 +422,15 @@ HELP = """🤖 Commands:
 /bet Texas over 47.5 -110 50 — game total (use under for unders)
 /bet Lazio over 2.5 -120 50 — soccer goals total
 /bet Dak Prescott over 219.5 pass Cowboys -110 50 — player prop (add the team)
+/check Lazio over 3 +112 — BEFORE you bet: true odds, your edge, GOOD/BAD price
 /bets — your open bets + live hedge numbers
-/del 2 — remove bet #2 (after you hedge or it ends)
+/won 2 · /lost 2 · /push 2 — grade bet #2 (I grade moneylines & totals myself)
+/result 2 +45.50 — record what you actually made (e.g. after a hedge)
+/stats — record, profit, ROI, and whether you're beating the closing line
+/del 2 — delete bet #2 (mistakes only — it won't count in stats)
 /scan — scan right now
 
-I check your bets every scan and message you when a hedge locks in profit."""
+I check your bets every scan, text you when a hedge locks profit, and grade them when games end."""
 
 
 def load_state():
@@ -439,6 +443,7 @@ def load_state():
     st.setdefault("chat_id", "")
     st.setdefault("bets", [])
     st.setdefault("next_id", 1)
+    st.setdefault("history", [])
     return st
 
 
@@ -463,7 +468,7 @@ def tg_send(chat_id, text):
         print(f"  ! Telegram failed: {e}")
 
 
-def parse_bet(text):
+def parse_bet(text, need_stake=True):
     toks = text.replace("$", " ").split()
     b = {"odds": None, "stake": None, "side": None, "line": None, "market": "h2h"}
     words, i = [], 0
@@ -485,7 +490,7 @@ def parse_bet(text):
         i += 1
     if b["side"] and b["market"] == "h2h":
         b["market"] = "totals"
-    if b["odds"] is None or not b["stake"] or not words:
+    if b["odds"] is None or (need_stake and not b["stake"]) or not words:
         return None
     b["words"] = words
     return b
@@ -509,38 +514,159 @@ def find_event(words):
     return best
 
 
-def add_bet(st, text):
-    b = parse_bet(text)
-    if not b:
-        return "Couldn't read that. Example: /bet Texas -115 100"
+def resolve(b):
+    """Turn parsed words into a specific game + side. Returns dict, or an error string."""
     found = find_event(b["words"])
     if not found:
         return f"Couldn't find a game for '{' '.join(b['words'])}'. Try the team's full name."
     _, sk, ev, hits = found
     rest = [w for w in b["words"] if w.lower() not in hits]
     if b["market"] == "h2h":
-        side = max([ev["home_team"], ev["away_team"]],
-                   key=lambda t: sum(w in t.lower() for w in hits))
-        player, label = None, f"{side} ML"
+        if any(w.lower() in ("draw", "tie") for w in b["words"]):
+            side = "Draw"
+        else:
+            side = max([ev["home_team"], ev["away_team"]],
+                       key=lambda t: sum(w in t.lower() for w in hits))
+        player, label = None, f"{side} ML" if side != "Draw" else "Draw"
     elif b["market"] == "totals":
-        side, player, label = b["side"], None, f"{b['side']} {b['line']:g} (game total)"
         if not b["side"]:
             return "Totals need over/under and a number, e.g. /bet Texas over 47.5 -110 50"
+        side, player, label = b["side"], None, f"{b['side']} {b['line']:g} (game total)"
     else:
         if not rest:
             return "Props need the player's name and team, e.g. /bet Dak Prescott over 219.5 pass Cowboys -110 50"
         side, player = b["side"], " ".join(rest)
         label = f"{player} {b['side']} {b['line']:g} {b['market'].replace('player_', '').replace('_', ' ')}"
+    return {"sport": sk, "ev": ev, "side": side, "player": player, "label": label}
+
+
+def add_bet(st, text):
+    b = parse_bet(text)
+    if not b:
+        return "Couldn't read that. Example: /bet Texas -115 100"
+    r = resolve(b)
+    if isinstance(r, str):
+        return r
+    sk, ev, side, player, label = r["sport"], r["ev"], r["side"], r["player"], r["label"]
     payout = b["stake"] * am_to_dec(b["odds"])
+    start = datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00"))
     bet = {"id": st["next_id"], "sport": sk, "event_id": ev["id"],
            "event": f"{ev['away_team']} @ {ev['home_team']}", "commence": ev["commence_time"],
            "market": b["market"], "side": side, "player": player, "line": b["line"],
            "odds": b["odds"], "stake": b["stake"], "payout": round(payout, 2),
-           "label": label, "last_lock": None, "status": ""}
+           "label": label, "last_lock": None, "status": "",
+           "placed": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+           "placed_live": start <= datetime.now(timezone.utc),
+           "close_p": None, "result": None, "profit": None}
     st["next_id"] += 1
     st["bets"].append(bet)
     return (f"✅ Bet #{bet['id']} saved: {label} {b['odds']:+d} ${b['stake']:g} "
             f"(pays ${payout:.2f})\n{bet['event']}\nI'll message you when a hedge locks profit.")
+
+
+def check_price(text):
+    b = parse_bet(text, need_stake=False)
+    if not b:
+        return "Example: /check Lazio over 3 +112  (team/player, line if any, the odds you see)"
+    r = resolve(b)
+    if isinstance(r, str):
+        return r
+    ev = r["ev"]
+    data = api_get(f"/sports/{r['sport']}/events/{ev['id']}/odds", markets=b["market"],
+                   oddsFormat="american", **book_params())
+    probe = {"market": b["market"], "line": b["line"], "player": r["player"]}
+    best, all_sides = collect_prices(data, MY_BOOKS) if data else ({}, {})
+    g = bet_group(probe, best) if best else None
+    my_d = am_to_dec(b["odds"])
+    out = [f"🔎 {r['label']} {b['odds']:+d}", f"{ev['away_team']} @ {ev['home_team']}"]
+    if b["odds"] < 0 and b["odds"] < MAX_FAVORITE:
+        out.append(f"⛔ Shorter than your {MAX_FAVORITE:+.0f} limit — your rule says pass.")
+    p = fair_probs(data).get(g, {}).get(r["side"]) if g else None
+    if p:
+        edge = (p * my_d - 1) * 100
+        verdict = ("✅ GOOD price — real edge" if edge >= MIN_EV_PCT else
+                   "🟡 FAIR price — no real edge, only bet if you have a strong read" if edge > -2 else
+                   "❌ BAD price — you're overpaying")
+        out.append(f"True odds (exchanges): {dec_to_am(1 / p)} · {p * 100:.0f}% to win")
+        out.append(f"Your price is {edge:+.1f}% vs true → {verdict}")
+    else:
+        out.append("No exchange price on this exact line, so I can't judge true odds.")
+    if g and r["side"] in best.get(g, {}):
+        d, book, _ = best[g][r["side"]]
+        tag = "  ← better than yours!" if d > my_d + 1e-9 else ""
+        out.append(f"Best at your books: {dec_to_am(d)} @ {book}{tag}")
+    out.append(f"To win ${UNIT_TO_WIN:.0f}: risk ${UNIT_TO_WIN / (my_d - 1):.2f}")
+    return "\n".join(out)
+
+
+def grade_from_scores(bet, ev):
+    if not ev or not ev.get("completed") or not ev.get("scores"):
+        return None
+    try:
+        sc = {x["name"]: float(x["score"]) for x in ev["scores"]}
+    except (TypeError, ValueError, KeyError):
+        return None
+    if bet["market"] == "h2h":
+        h, a = sc.get(ev["home_team"]), sc.get(ev["away_team"])
+        if h is None or a is None:
+            return None
+        winner = ev["home_team"] if h > a else ev["away_team"] if a > h else "Draw"
+        if winner == "Draw" and bet["side"] != "Draw" and not bet["sport"].startswith("soccer"):
+            return "push"
+        return "won" if bet["side"] == winner else "lost"
+    if bet["market"] == "totals":
+        tot = sum(sc.values())
+        if abs(tot - bet["line"]) < 1e-9:
+            return "push"
+        return "won" if (tot > bet["line"]) == (bet["side"] == "Over") else "lost"
+    return None
+
+
+def settle(st, bet, result, profit=None):
+    if profit is None:
+        profit = {"won": bet["payout"] - bet["stake"], "lost": -bet["stake"], "push": 0.0}[result]
+    bet["result"], bet["profit"] = result, round(profit, 2)
+    if bet in st["bets"]:
+        st["bets"].remove(bet)
+        st["history"].append(bet)
+
+
+def find_bet(st, n):
+    for b in st["bets"] + st["history"]:
+        if b["id"] == n:
+            return b
+    return None
+
+
+def stats_text(st):
+    done = [b for b in st["history"] if b.get("result")]
+    waiting = [b for b in st["history"] if not b.get("result")]
+    if not done:
+        msg = "No graded bets yet."
+        if waiting:
+            msg += f" {len(waiting)} waiting for a result: " + ", ".join(f"#{b['id']}" for b in waiting)
+        return msg
+    w = sum(b["result"] == "won" for b in done)
+    l = sum(b["result"] == "lost" for b in done)
+    pu = sum(b["result"] == "push" for b in done)
+    hedged = sum(b["result"] == "custom" for b in done)
+    risked = sum(b["stake"] for b in done)
+    profit = sum(b["profit"] for b in done)
+    out = ["📊 Your betting record",
+           f"Record: {w}-{l}" + (f"-{pu} (pushes)" if pu else "") + (f" · {hedged} hedged/custom" if hedged else ""),
+           f"Profit: {'+' if profit >= 0 else '-'}${abs(profit):,.2f} ({profit / UNIT_TO_WIN:+.1f} units)",
+           f"Risked: ${risked:,.2f} · ROI {profit / risked * 100:+.1f}%" if risked else ""]
+    clv = [b["close_p"] * am_to_dec(b["odds"]) - 1 for b in done + st["bets"]
+           if b.get("close_p") and not b.get("placed_live")]
+    if clv:
+        beat = sum(c > 0 for c in clv)
+        out.append(f"Closing line: beat it on {beat} of {len(clv)} pre-game bets · avg {sum(clv) / len(clv) * 100:+.1f}%")
+        out.append("(Beating the close over time = real edge, even through losing streaks.)")
+    if len(done) < 50:
+        out.append(f"Only {len(done)} bets so far — need ~100+ before the record means much.")
+    if waiting:
+        out.append("Waiting for a result: " + ", ".join(f"#{b['id']}" for b in waiting) + " — send /won, /lost or /push")
+    return "\n".join(x for x in out if x)
 
 
 def bet_group(bet, best):
@@ -560,11 +686,35 @@ def bet_group(bet, best):
 def check_bets(st, odds_cache):
     changed = False
     now = datetime.now(timezone.utc)
+    scores_cache = {}
     for bet in list(st["bets"]):
         start = datetime.fromisoformat(bet["commence"].replace("Z", "+00:00"))
-        if (now - start).total_seconds() > 8 * 3600:
+        since = (now - start).total_seconds()
+        # auto-grade moneylines & totals once the game is likely over (checks at most every 30 min)
+        if since > 2 * 3600 and bet["market"] in ("h2h", "totals") and \
+                time.time() - bet.get("grade_try", 0) > 1800:
+            bet["grade_try"] = time.time()
+            changed = True
+            if bet["sport"] not in scores_cache:
+                try:
+                    scores_cache[bet["sport"]] = {e["id"]: e for e in
+                                                  api_get(f"/sports/{bet['sport']}/scores", daysFrom=1)}
+                except requests.RequestException:
+                    scores_cache[bet["sport"]] = {}
+            res = grade_from_scores(bet, scores_cache[bet["sport"]].get(bet["event_id"]))
+            if res:
+                settle(st, bet, res)
+                icon = {"won": "✅ WON", "lost": "❌ LOST", "push": "↩️ PUSH"}[res]
+                tg_send(st["chat_id"], f"{icon} — bet #{bet['id']} {bet['label']} {bet['odds']:+d}: "
+                                       f"{'+' if bet['profit'] >= 0 else '-'}${abs(bet['profit']):.2f}\n"
+                                       f"Hedged it? Send /result {bet['id']} <what you actually made>")
+                continue
+        if since > 8 * 3600:
             st["bets"].remove(bet)
-            tg_send(st["chat_id"], f"🏁 Bet #{bet['id']} ({bet['label']}) should be over, so I removed it.")
+            st["history"].append(bet)
+            tg_send(st["chat_id"], f"🏁 Bet #{bet['id']} ({bet['label']}) should be over. How did it go?\n"
+                                   f"Send /won {bet['id']}, /lost {bet['id']} or /push {bet['id']} "
+                                   f"(or /result {bet['id']} <amount> if you hedged).")
             changed = True
             continue
         if start > now + timedelta(hours=12):
@@ -585,6 +735,11 @@ def check_bets(st, odds_cache):
         if not g:
             bet["status"] = "that line isn't posted at your books right now"
             continue
+        if now < start:  # last pre-game fair price = closing line
+            fp = fair_probs(data).get(g, {}).get(bet["side"])
+            if fp:
+                bet["close_p"] = round(fp, 4)
+                changed = True
         others = [s_ for s_ in all_sides[g] if s_ != bet["side"]]
         if not others or not all(s_ in best[g] for s_ in others):
             bet["status"] = "other side isn't posted at your books right now"
@@ -652,6 +807,25 @@ def handle_command(st, text, seen):
         reply = add_bet(st, rest)
         save_state(st, "Add bet")
         return reply
+    if cmd == "/check":
+        return check_price(rest)
+    if cmd in ("/won", "/lost", "/push", "/result"):
+        nums = re.findall(r"[+-]?\d+(?:\.\d+)?", rest)
+        if not nums:
+            return f"Which bet? e.g. {cmd} 2" + (" +45.50" if cmd == "/result" else "")
+        bet = find_bet(st, int(float(nums[0])))
+        if not bet:
+            return "I don't have that bet number. Send /bets or /stats to see them."
+        if cmd == "/result":
+            if len(nums) < 2:
+                return "Add the amount you made, e.g. /result 2 +45.50 (or -20 if you lost money)"
+            settle(st, bet, "custom", float(nums[1]))
+        else:
+            settle(st, bet, cmd[1:])
+        save_state(st, "Grade bet")
+        return f"Got it — bet #{bet['id']} {bet['label']}: {'+' if bet['profit'] >= 0 else '-'}${abs(bet['profit']):.2f}\n\n" + stats_text(st)
+    if cmd == "/stats":
+        return stats_text(st)
     if cmd == "/bets":
         if not st["bets"]:
             return "No open bets. Add one: /bet Texas -115 100"
@@ -662,10 +836,11 @@ def handle_command(st, text, seen):
         return "\n\n".join(lines)
     if cmd == "/del":
         ids = {int(x) for x in re.findall(r"\d+", rest)}
-        before = len(st["bets"])
+        before = len(st["bets"]) + len(st["history"])
         st["bets"] = [b for b in st["bets"] if b["id"] not in ids]
+        st["history"] = [b for b in st["history"] if b["id"] not in ids]
         save_state(st, "Remove bet")
-        return f"Removed {before - len(st['bets'])} bet(s)."
+        return f"Deleted {before - len(st['bets']) - len(st['history'])} bet(s)."
     if cmd == "/scan":
         if run_cycle(st, seen):
             save_state(st, "Hedge alert")
