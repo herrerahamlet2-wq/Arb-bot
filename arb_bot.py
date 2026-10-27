@@ -462,6 +462,7 @@ HELP = """🤖 Commands:
 /bets — your open bets + live hedge numbers
 /won 2 · /lost 2 · /push 2 — grade bet #2 (I grade moneylines & totals myself)
 /result 2 +45.50 — record what you actually made (e.g. after a hedge)
+🏆 Best bet of the week: sent automatically (max 1/week) when steam + 5%+ edge + -110 to -140 all line up
 /pick — best value bet of the day across all sports (also sent automatically at noon)
 /stats — record, profit, ROI, and whether you're beating the closing line
 /del 2 — delete bet #2 (mistakes only — it won't count in stats)
@@ -879,8 +880,32 @@ def markets_for(sk):
     return ",".join(m)
 
 
+BEST_BET_UNITS = 2
+BEST_BET_MIN_EV = 5.0
+
+
+def best_bet_check(st, x):
+    """Weekly best bet: steam + 5%+ edge + -110 to -140 price. At most one per week."""
+    week = datetime.now(timezone.utc).strftime("%G-W%V")
+    if st.get("best_bet_week") == week or not x.get("steam") or x["ev"] < BEST_BET_MIN_EV or x["ev"] >= 15:
+        return False
+    am = float(dec_to_am(x["dec"]))
+    if not -140 <= am <= -110:
+        return False
+    st["best_bet_week"] = week
+    risk = BEST_BET_UNITS * UNIT_TO_WIN / (x["dec"] - 1)
+    tg_send(st["chat_id"], "\n".join([
+        f"🏆 BEST BET OF THE WEEK — {BEST_BET_UNITS} units",
+        fmt_ev(x),
+        f"   ✅ Steam ✅ +{x['ev']:.1f}% edge ✅ {dec_to_am(x['dec'])} in your range",
+        f"   {BEST_BET_UNITS}u play: risk ${risk:.2f} to win ${BEST_BET_UNITS * UNIT_TO_WIN:.0f}",
+        "   Last check is YOU: if your read disagrees, pass. No other best bet until next week."]))
+    return True
+
+
 def run_cycle(st, seen):
     odds_cache = {}
+    best_sent = False
     for sk in active_sports():
         events = api_get(f"/sports/{sk}/odds", markets=markets_for(sk), oddsFormat="american", **book_params())
         for ev in events:
@@ -894,8 +919,11 @@ def run_cycle(st, seen):
             key = ("ev", x["event"], x["group"], x["side"], x["book"], round(x["dec"], 3))
             if key not in seen:
                 seen.add(key)
-                tg_send(st["chat_id"], fmt_ev(x))
-    changed = check_bets(st, odds_cache)
+                if best_bet_check(st, x):
+                    best_sent = True
+                else:
+                    tg_send(st["chat_id"], fmt_ev(x))
+    changed = check_bets(st, odds_cache) or best_sent
     print(f"[{datetime.now():%H:%M}] scan done · {len(odds_cache)} games · credits left {_remaining}")
     return changed
 
