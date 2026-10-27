@@ -1,5 +1,5 @@
 {
-  "offset": 253845596,
+  "offset": 253845597,
   "chat_id": "6914846421",
   "bets": [
     {
@@ -24,9 +24,33 @@
       "close_p": 0.3364,
       "result": null,
       "profit": null
+    },
+    {
+      "id": 3,
+      "sport": "tennis_atp_vienna_open",
+      "event_id": "705dce2eaaf74f7b3cb3f919d2f1ea8d",
+      "event": "Grigor Dimitrov @ Flavio Cobolli",
+      "commence": "2026-10-27T20:24:00Z",
+      "market": "h2h",
+      "side": "Grigor Dimitrov",
+      "player": null,
+      "line": null,
+      "home": "Flavio Cobolli",
+      "odds": -101,
+      "stake": 115.0,
+      "payout": 228.86,
+      "label": "Grigor Dimitrov ML",
+      "last_lock": null,
+      "status": "",
+      "placed": "2026-10-27T22:08:34+00:00",
+      "placed_live": true,
+      "close_p": null,
+      "result": null,
+      "profit": null,
+      "surface": null
     }
   ],
-  "next_id": 3,
+  "next_id": 4,
   "history": [
     {
       "id": 1,
