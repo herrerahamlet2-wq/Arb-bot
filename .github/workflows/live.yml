@@ -1,0 +1,35 @@
+name: Live scanner
+
+on:
+  schedule:
+    # Two ~6-hour sessions ≈ noon to midnight New York time (GitHub runs on UTC)
+    - cron: "50 15 * * *"
+    - cron: "50 21 * * *"
+  workflow_dispatch:   # tap "Run workflow" to start a session any time
+
+permissions:
+  contents: write      # lets the bot save your open bets (state.json)
+
+concurrency:
+  group: live-scanner
+  cancel-in-progress: true
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: |
+          git config user.name "arb-bot"
+          git config user.email "arb-bot@users.noreply.github.com"
+      - run: python arb_bot.py watch --every 15 --hours 5.85
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          BETTING_BANKROLL: "500"
+          MARKETS: "h2h,totals"   # moneylines + overs/unders
