@@ -1,32 +1,7 @@
 {
   "offset": 253845597,
   "chat_id": "6914846421",
-  "bets": [
-    {
-      "id": 2,
-      "sport": "americanfootball_ncaaf",
-      "event_id": "eed30e1ba5aa37d77ee6401d67832446",
-      "event": "Sam Houston State Bearkats @ Missouri State Bears",
-      "commence": "2026-10-28T00:00:00Z",
-      "market": "h2h",
-      "side": "Sam Houston State Bearkats",
-      "player": null,
-      "line": null,
-      "home": "Missouri State Bears",
-      "odds": 165,
-      "stake": 100.0,
-      "payout": 265.0,
-      "label": "Sam Houston State Bearkats ML",
-      "last_lock": null,
-      "status": "hedge $253.61 on Missouri State Bears -2226 @ Novig \u2192 -$88.61 either way",
-      "placed": "2026-10-27T18:40:09+00:00",
-      "placed_live": false,
-      "close_p": 0.3421,
-      "result": null,
-      "profit": null,
-      "grade_try": 1793155657.3661454
-    }
-  ],
+  "bets": [],
   "next_id": 4,
   "history": [
     {
@@ -77,6 +52,30 @@
       "profit": -115.0,
       "surface": null,
       "grade_try": 1793143038.2296154
+    },
+    {
+      "id": 2,
+      "sport": "americanfootball_ncaaf",
+      "event_id": "eed30e1ba5aa37d77ee6401d67832446",
+      "event": "Sam Houston State Bearkats @ Missouri State Bears",
+      "commence": "2026-10-28T00:00:00Z",
+      "market": "h2h",
+      "side": "Sam Houston State Bearkats",
+      "player": null,
+      "line": null,
+      "home": "Missouri State Bears",
+      "odds": 165,
+      "stake": 100.0,
+      "payout": 265.0,
+      "label": "Sam Houston State Bearkats ML",
+      "last_lock": null,
+      "status": "hedge $264.73 on Missouri State Bears -99900 @ Novig \u2192 -$99.73 either way",
+      "placed": "2026-10-27T18:40:09+00:00",
+      "placed_live": false,
+      "close_p": 0.3421,
+      "result": "lost",
+      "profit": -100.0,
+      "grade_try": 1793158061.2052338
     }
   ],
   "last_pick": "2026-10-28"
